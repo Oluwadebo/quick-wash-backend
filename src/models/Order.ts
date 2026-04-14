@@ -55,6 +55,8 @@ export interface IOrder extends Document {
   readyForPickup: boolean; // Vendor flag
   readyToReceive: boolean; // Customer flag
   
+  autoReleaseAt?: Date; // For escrow auto-release
+  
   // Trust Points
   trustPointsImpact: number;
   
@@ -107,6 +109,8 @@ const OrderSchema: Schema = new Schema(
     
     readyForPickup: { type: Boolean, default: false },
     readyToReceive: { type: Boolean, default: false },
+    
+    autoReleaseAt: { type: Date },
     
     trustPointsImpact: { type: Number, default: 0 },
     

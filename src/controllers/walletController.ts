@@ -48,3 +48,30 @@ export const verifyDeposit = async (req: AuthRequest, res: Response) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+export const requestWithdrawal = async (req: AuthRequest, res: Response) => {
+  const { amount } = req.body;
+  const userId = req.user?._id;
+
+  try {
+    const wallet = await Wallet.findOne({ user: userId });
+    if (!wallet || wallet.balance < amount) {
+      return res.status(400).json({ message: 'Insufficient balance' });
+    }
+
+    // In a real app, you'd trigger a Paystack transfer here
+    // For now, we'll just deduct and log it
+    wallet.balance -= amount;
+    wallet.transactions.push({
+      amount,
+      type: 'debit',
+      purpose: 'withdrawal',
+      date: new Date(),
+    });
+    await wallet.save();
+
+    res.json({ message: 'Withdrawal request processed', balance: wallet.balance });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};

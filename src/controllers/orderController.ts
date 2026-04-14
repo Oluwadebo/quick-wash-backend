@@ -1,11 +1,13 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import Order, { OrderStatus, EscrowStatus } from '../models/Order';
+import User from '../models/User';
 import { getRiderFee } from '../config/landmarks';
 import { ORDER_PREFIX } from '../config/constants';
 import { generateHandoverCode } from '../utils/handover';
 import { calculateEscrowSplit } from '../utils/escrow';
 import { updateTrustPoints, TrustEvent } from '../utils/trustPoints';
+import { sendSMS } from '../utils/sms';
 
 export const createOrder = async (req: AuthRequest, res: Response) => {
   const { vendorId, items, landmark } = req.body;
@@ -56,6 +58,19 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
 
     order.status = status;
     
+    if (status === OrderStatus.DELIVERED) {
+      const releaseTime = new Date();
+      releaseTime.setHours(releaseTime.getHours() + 24);
+      order.autoReleaseAt = releaseTime;
+      order.paymentStatus = 'escrow';
+      
+      // Notify customer
+      const customer = await User.findById(order.customer);
+      if (customer) {
+        await sendSMS(customer.phone, `Your order ${order.orderId} has been delivered! Funds will be released in 24h unless you raise a dispute.`);
+      }
+    }
+
     // Automatic Trust Points on Completion
     if (status === OrderStatus.COMPLETED) {
       order.escrowStatus = EscrowStatus.RELEASED;

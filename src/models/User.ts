@@ -18,7 +18,11 @@ export interface IUser extends Document {
   address?: string;
   landmark?: string; // For riders/customers
   isVerified: boolean;
+  isApproved: boolean; // For vendors/riders
+  isPhoneVerified: boolean;
   trustPoints: number;
+  otp?: string;
+  otpExpires?: Date;
   
   // Vendor specific
   businessName?: string;
@@ -45,7 +49,11 @@ const UserSchema: Schema = new Schema(
     address: { type: String },
     landmark: { type: String },
     isVerified: { type: Boolean, default: false },
+    isApproved: { type: Boolean, default: false },
+    isPhoneVerified: { type: Boolean, default: false },
     trustPoints: { type: Number, default: 100 }, // Default trust score
+    otp: { type: String },
+    otpExpires: { type: Date },
     
     // Vendor specific
     businessName: { type: String },
