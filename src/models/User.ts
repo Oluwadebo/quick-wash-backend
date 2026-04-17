@@ -21,6 +21,7 @@ export interface IUser extends Document {
   isApproved: boolean; // For vendors/riders
   isPhoneVerified: boolean;
   trustPoints: number;
+  lastNegativeEventAt?: Date;
   otp?: string;
   otpExpires?: Date;
   
@@ -52,6 +53,7 @@ const UserSchema: Schema = new Schema(
     isApproved: { type: Boolean, default: false },
     isPhoneVerified: { type: Boolean, default: false },
     trustPoints: { type: Number, default: 100 }, // Default trust score
+    lastNegativeEventAt: { type: Date, default: Date.now }, // For trust recovery
     otp: { type: String },
     otpExpires: { type: Date },
     

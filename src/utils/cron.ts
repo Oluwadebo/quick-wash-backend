@@ -3,6 +3,8 @@ import Order, { OrderStatus, EscrowStatus } from '../models/Order';
 import Wallet from '../models/Wallet';
 import { updateTrustPoints, TrustEvent } from './trustPoints';
 
+import User from '../models/User';
+
 export const initCronJobs = () => {
   // Run every hour to check for escrow auto-release
   cron.schedule('0 * * * *', async () => {
@@ -10,7 +12,6 @@ export const initCronJobs = () => {
     const now = new Date();
 
     try {
-      // Find orders that are delivered but not completed, and autoReleaseAt has passed
       const ordersToRelease = await Order.find({
         status: OrderStatus.DELIVERED,
         escrowStatus: EscrowStatus.HELD,
@@ -18,7 +19,6 @@ export const initCronJobs = () => {
       });
 
       for (const order of ordersToRelease) {
-        // Release funds to vendor
         const vendorWallet = await Wallet.findOne({ user: order.vendor });
         if (vendorWallet) {
           vendorWallet.balance += order.escrowAmount;
@@ -37,7 +37,6 @@ export const initCronJobs = () => {
         order.paymentStatus = 'released';
         await order.save();
 
-        // Update trust points
         await updateTrustPoints(order.customer.toString(), TrustEvent.ORDER_COMPLETED);
         await updateTrustPoints(order.vendor.toString(), TrustEvent.ORDER_COMPLETED);
         
@@ -45,6 +44,32 @@ export const initCronJobs = () => {
       }
     } catch (error) {
       console.error('Cron Job Error:', error);
+    }
+  });
+
+  // Run daily at midnight to check for Trust Point Recovery
+  cron.schedule('0 0 * * *', async () => {
+    console.log('Running Trust Point Recovery Cron...');
+    const twentySevenDaysAgo = new Date();
+    twentySevenDaysAgo.setDate(twentySevenDaysAgo.getDate() - 27);
+
+    try {
+      // Find users who have points below max (100) and no negative events in 27 days
+      const usersToRecover = await User.find({
+        trustPoints: { $lt: 100 },
+        lastNegativeEventAt: { $lte: twentySevenDaysAgo }
+      });
+
+      for (const user of usersToRecover) {
+        user.trustPoints = Math.min(100, user.trustPoints + 10);
+        // Move the date forward by 27 days so they can earn again in 27 days
+        const oldDate = user.lastNegativeEventAt || new Date();
+        user.lastNegativeEventAt = new Date(oldDate.getTime() + 27 * 24 * 60 * 60 * 1000);
+        await user.save();
+        console.log(`Recovered 10 points for user: ${user.name}`);
+      }
+    } catch (error) {
+      console.error('Trust Recovery Cron Error:', error);
     }
   });
 };

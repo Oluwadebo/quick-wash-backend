@@ -4,7 +4,8 @@ import {
   manualTrustPointsOverride, 
   getAllDisputes, 
   resolveDispute, 
-  getAuditLogs 
+  getAuditLogs,
+  deleteUser
 } from '../controllers/adminController';
 import { protect } from '../middleware/auth';
 import { authorize } from '../middleware/role';
@@ -20,5 +21,6 @@ router.patch('/trust-override/:userId', manualTrustPointsOverride);
 router.get('/disputes', getAllDisputes);
 router.patch('/disputes/:disputeId', resolveDispute);
 router.get('/audit-logs', getAuditLogs);
+router.delete('/users/:userId', deleteUser);
 
 export default router;

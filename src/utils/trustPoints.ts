@@ -29,9 +29,13 @@ export const calculatePoints = (event: TrustEvent): number => {
 export const updateTrustPoints = async (userId: string, event: TrustEvent) => {
   try {
     const points = calculatePoints(event);
-    await User.findByIdAndUpdate(userId, {
-      $inc: { trustPoints: points },
-    });
+    const update: any = { $inc: { trustPoints: points } };
+    
+    if (points < 0) {
+      update.lastNegativeEventAt = Date.now();
+    }
+
+    await User.findByIdAndUpdate(userId, update);
     return points;
   } catch (error) {
     console.error('Error updating trust points:', error);

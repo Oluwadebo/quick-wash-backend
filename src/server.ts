@@ -55,15 +55,23 @@ app.get('/', (req, res) => {
 });
 
 // Database Connection
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/quickwash';
+const MONGODB_URI = process.env.MONGODB_URI;
 
-mongoose
-  .connect(MONGODB_URI)
-  .then(() => {
-    console.log('✅ MongoDB Connected');
-    initCronJobs();
-  })
-  .catch((err) => console.error('❌ MongoDB Connection Error:', err));
+if (!MONGODB_URI) {
+  console.error('❌ ERROR: MONGODB_URI is not defined in environment variables.');
+  console.error('👉 Action Required: Add your MongoDB connection string (e.g., from MongoDB Atlas) to the "Secrets" in the Settings menu.');
+} else {
+  mongoose
+    .connect(MONGODB_URI)
+    .then(() => {
+      console.log('✅ MongoDB Connected');
+      initCronJobs();
+    })
+    .catch((err) => {
+      console.error('❌ MongoDB Connection Error:', err.message);
+      console.error('🚨 Ensure your IP address is allowlisted in MongoDB Atlas and your credentials are correct.');
+    });
+}
 
 // Start Server
 const PORT = process.env.PORT || 3000;

@@ -9,11 +9,12 @@ import {
 import { protect } from '../middleware/auth';
 import { validateLandmark } from '../middleware/landmark';
 import { checkReadyForPickup, checkReadyToReceive } from '../middleware/orderChecks';
+import { checkTrustLevel } from '../middleware/trustMiddleware';
 
 const router = express.Router();
 
 router.get('/:orderId', protect, getOrderById);
-router.post('/', protect, validateLandmark, createOrder);
+router.post('/', protect, checkTrustLevel, validateLandmark, createOrder);
 router.patch('/:orderId/status', protect, updateOrderStatus);
 router.patch('/:orderId/ready-pickup', protect, setReadyForPickup);
 router.patch('/:orderId/ready-receive', protect, setReadyToReceive);

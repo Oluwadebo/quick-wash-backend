@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import Order, { OrderStatus, EscrowStatus } from '../models/Order';
 import User from '../models/User';
+import Wallet from '../models/Wallet';
 import { getRiderFee } from '../config/landmarks';
 import { ORDER_PREFIX } from '../config/constants';
 import { generateHandoverCode } from '../utils/handover';
@@ -14,6 +15,13 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
   const customerId = req.user?._id;
 
   try {
+    const vendor = await User.findById(vendorId);
+    if (!vendor || !vendor.isOpen) {
+      return res.status(400).json({ 
+        message: 'Vendor is currently closed (Rain Lock or Manual Closure). Cannot place order.' 
+      });
+    }
+
     const totalAmount = items.reduce((acc: number, item: any) => acc + item.price * item.quantity, 0);
     const riderFee = getRiderFee(landmark);
     const { vendorShare, platformShare } = calculateEscrowSplit(totalAmount);
@@ -102,12 +110,62 @@ export const setReadyForPickup = async (req: AuthRequest, res: Response) => {
   }
 };
 
+export const cancelOrder = async (req: AuthRequest, res: Response) => {
+  const { orderId } = req.params;
+  const userId = req.user?._id;
+
+  try {
+    // Privacy-First: Customer can only cancel their own order
+    const order = await Order.findOne({ 
+      _id: orderId, 
+      customer: userId,
+      status: { $in: [OrderStatus.PENDING, OrderStatus.RIDER_ASSIGNED_PICKUP] }
+    });
+
+    if (!order) {
+      return res.status(400).json({ 
+        message: 'Order cannot be cancelled or you are not authorized. Cancellation is only possible before pickup.' 
+      });
+    }
+
+    // High-Visibility Cancellation Logic: 100% Refund if cancelled before pickup
+    const wallet = await Wallet.findOne({ user: userId });
+    if (wallet) {
+      const refundAmount = order.totalAmount + order.riderFee;
+      wallet.balance += refundAmount;
+      wallet.transactions.push({
+        amount: refundAmount,
+        type: 'credit',
+        purpose: 'order_payment',
+        reference: `REFUND-${order.orderId}`,
+        date: new Date()
+      });
+      await wallet.save();
+    }
+
+    order.status = OrderStatus.CANCELLED;
+    order.paymentStatus = 'refunded';
+    await order.save();
+
+    res.json({ message: 'Order cancelled successfully and 100% refund processed to wallet.', order });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 export const setReadyToReceive = async (req: AuthRequest, res: Response) => {
   const { orderId } = req.params;
+  const userId = req.user?._id;
+
   try {
-    const order = await Order.findByIdAndUpdate(orderId, { 
-      readyToReceive: true 
-    }, { new: true });
+    // Privacy-First: Only customer can signal ready to receive
+    const order = await Order.findOneAndUpdate(
+      { _id: orderId, customer: userId },
+      { readyToReceive: true },
+      { new: true }
+    );
+    
+    if (!order) return res.status(404).json({ message: 'Order not found or unauthorized' });
     res.json(order);
   } catch (error: any) {
     res.status(500).json({ message: error.message });
@@ -115,9 +173,23 @@ export const setReadyToReceive = async (req: AuthRequest, res: Response) => {
 };
 
 export const getOrderById = async (req: AuthRequest, res: Response) => {
+    const userId = req.user?._id;
+    const isSuperAdmin = req.user?.email === 'ogunwedebo21@gmail.com';
+
     try {
-        const order = await Order.findById(req.params.orderId).populate('customer vendor pickupRider deliveryRider');
-        if (!order) return res.status(404).json({ message: 'Order not found' });
+        // Privacy-First Filtering: Ensure user only sees their own orders
+        const query: any = { _id: req.params.orderId };
+        if (!isSuperAdmin) {
+            query.$or = [
+                { customer: userId },
+                { vendor: userId },
+                { pickupRider: userId },
+                { deliveryRider: userId }
+            ];
+        }
+
+        const order = await Order.findOne(query).populate('customer vendor pickupRider deliveryRider');
+        if (!order) return res.status(404).json({ message: 'Order not found or unauthorized' });
         res.json(order);
     } catch (error: any) {
         res.status(500).json({ message: error.message });

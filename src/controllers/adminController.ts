@@ -100,3 +100,30 @@ export const getAuditLogs = async (req: AuthRequest, res: Response) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+export const deleteUser = async (req: AuthRequest, res: Response) => {
+  const { userId } = req.params;
+  const isSuperAdmin = req.user?.email === 'ogunwedebo21@gmail.com';
+
+  if (!isSuperAdmin) {
+    return res.status(403).json({ message: 'Only the Super Admin can delete users.' });
+  }
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    await AuditLog.create({
+      admin: req.user?._id,
+      action: 'DELETE_USER',
+      targetModel: 'User',
+      targetId: user._id,
+      details: { email: user.email, name: user.name, role: user.role }
+    });
+
+    await User.findByIdAndDelete(userId);
+    res.json({ message: 'User deleted successfully' });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};

@@ -4,10 +4,13 @@ import Order, { OrderStatus } from '../models/Order';
 import User from '../models/User';
 
 export const getAvailableOrders = async (req: AuthRequest, res: Response) => {
+  const riderId = req.user?._id;
   try {
     const orders = await Order.find({ 
-      status: { $in: [OrderStatus.PENDING, OrderStatus.READY_FOR_PICKUP] },
-      pickupRider: { $exists: false }
+      $or: [
+        { status: OrderStatus.PENDING, pickupRider: { $exists: false } },
+        { status: OrderStatus.READY_FOR_PICKUP, deliveryRider: { $exists: false }, pickupRider: riderId }
+      ]
     });
     res.json(orders);
   } catch (error: any) {
@@ -20,18 +23,31 @@ export const acceptOrder = async (req: AuthRequest, res: Response) => {
   const riderId = req.user?._id;
 
   try {
-    const order = await Order.findById(orderId);
-    if (!order) return res.status(404).json({ message: 'Order not found' });
+    // Atomic "First-to-Claim" lock mechanism
+    // We update only if the order still has the original status and no rider assigned
+    const order = await Order.findOneAndUpdate(
+      { 
+        _id: orderId,
+        $or: [
+          { status: OrderStatus.PENDING, pickupRider: { $exists: false } },
+          { status: OrderStatus.READY_FOR_PICKUP, deliveryRider: { $exists: false } }
+        ]
+      },
+      {
+        $set: {
+          status: req.body.isDelivery ? OrderStatus.RIDER_ASSIGNED_DELIVERY : OrderStatus.RIDER_ASSIGNED_PICKUP,
+          [req.body.isDelivery ? 'deliveryRider' : 'pickupRider']: riderId
+        }
+      },
+      { new: true }
+    );
 
-    if (order.status === OrderStatus.PENDING) {
-      order.pickupRider = riderId as any;
-      order.status = OrderStatus.RIDER_ASSIGNED_PICKUP;
-    } else if (order.status === OrderStatus.READY_FOR_PICKUP) {
-      order.deliveryRider = riderId as any;
-      order.status = OrderStatus.RIDER_ASSIGNED_DELIVERY;
+    if (!order) {
+      return res.status(400).json({ 
+        message: 'Order was already claimed by another rider or is no longer available.' 
+      });
     }
 
-    await order.save();
     res.json(order);
   } catch (error: any) {
     res.status(500).json({ message: error.message });
