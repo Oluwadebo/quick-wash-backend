@@ -1,21 +1,25 @@
-import express from 'express';
-import mongoose from 'mongoose';
-import cors from 'cors';
-import helmet from 'helmet';
-import morgan from 'morgan';
-import dotenv from 'dotenv';
-import { createServer } from 'http';
-import rateLimit from 'express-rate-limit';
+import cors from "cors";
+import dotenv from "dotenv";
+import express from "express";
+import rateLimit from "express-rate-limit";
+import helmet from "helmet";
+import { createServer } from "http";
+import mongoose from "mongoose";
+import morgan from "morgan";
 
-import authRoutes from './routes/authRoutes';
-import orderRoutes from './routes/orderRoutes';
-import vendorRoutes from './routes/vendorRoutes';
-import riderRoutes from './routes/riderRoutes';
-import walletRoutes from './routes/walletRoutes';
-import adminRoutes from './routes/adminRoutes';
-import userRoutes from './routes/userRoutes';
-import paymentRoutes from './routes/paymentRoutes';
-import { initCronJobs } from './utils/cron';
+// Routes
+import adminRoutes from "./routes/adminRoutes";
+import authRoutes from "./routes/authRoutes";
+import orderRoutes from "./routes/orderRoutes";
+import paymentRoutes from "./routes/paymentRoutes";
+import riderRoutes from "./routes/riderRoutes";
+import vendorRoutes from "./routes/vendorRoutes";
+import walletRoutes from "./routes/walletRoutes";
+import userRoutes from "./routes/userRoutes";
+
+// Middleware & Utils
+import { errorHandler } from "./middleware/errorHandler";
+import { initCronJobs } from "./utils/cron";
 
 // Load env vars
 dotenv.config();
@@ -26,52 +30,51 @@ const httpServer = createServer(app);
 // Middleware
 app.use(helmet());
 app.use(cors());
-app.use(morgan('dev'));
+app.use(morgan("dev"));
 app.use(express.json());
 
 // Rate Limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again after 15 minutes'
+  max: 100,
+  message: "Too many requests from this IP, please try again after 15 minutes",
 });
-app.use('/api/', limiter);
+app.use("/api/", limiter);
 
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/orders', orderRoutes);
-app.use('/api/vendors', vendorRoutes);
-app.use('/api/riders', riderRoutes);
-app.use('/api/wallet', walletRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/payments', paymentRoutes);
+// API Routes
+app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/orders", orderRoutes);
+app.use("/api/vendors", vendorRoutes);
+app.use("/api/riders", riderRoutes);
+app.use("/api/wallet", walletRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/payments", paymentRoutes);
 
-// Error Handler
-import { errorHandler } from './middleware/errorHandler';
+// Error Handler (Must be after routes)
 app.use(errorHandler);
 
-// Basic Route
-app.get('/', (req, res) => {
-  res.json({ message: 'Quick-Wash API is running' });
+// Health Check
+app.get("/", (req, res) => {
+  res.json({ message: "Quick-Wash API is running" });
 });
 
 // Database Connection
 const MONGODB_URI = process.env.MONGODB_URI;
 
 if (!MONGODB_URI) {
-  console.error('❌ ERROR: MONGODB_URI is not defined in environment variables.');
-  console.error('👉 Action Required: Add your MongoDB connection string (e.g., from MongoDB Atlas) to the "Secrets" in the Settings menu.');
+  console.error(
+    "❌ ERROR: MONGODB_URI is not defined in environment variables.",
+  );
 } else {
   mongoose
     .connect(MONGODB_URI)
     .then(() => {
-      console.log('✅ MongoDB Connected');
-      initCronJobs();
+      console.log("✅ MongoDB Connected");
+      initCronJobs(); // Starts automated order cancellation & recovery
     })
     .catch((err) => {
-      console.error('❌ MongoDB Connection Error:', err.message);
-      console.error('🚨 Ensure your IP address is allowlisted in MongoDB Atlas and your credentials are correct.');
+      console.error("❌ MongoDB Connection Error:", err.message);
     });
 }
 

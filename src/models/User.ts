@@ -1,11 +1,11 @@
-import mongoose, { Schema, Document } from 'mongoose';
-import bcrypt from 'bcryptjs';
+import bcrypt from "bcryptjs";
+import mongoose, { Document, Schema } from "mongoose";
 
 export enum UserRole {
-  CUSTOMER = 'customer',
-  VENDOR = 'vendor',
-  RIDER = 'rider',
-  ADMIN = 'admin',
+  CUSTOMER = "customer",
+  VENDOR = "vendor",
+  RIDER = "rider",
+  ADMIN = "admin",
 }
 
 export interface IUser extends Document {
@@ -25,15 +25,15 @@ export interface IUser extends Document {
   pendingBalance: number;
   trustPoints: number;
   trustScore: number;
-  status: 'active' | 'restricted' | 'suspended';
+  status: "active" | "restricted" | "suspended";
   lastNegativeEventAt?: Date;
   otp?: string;
   otpExpires?: Date;
-  
+
   // Vendor specific
   shopName?: string;
   isOpen?: boolean;
-  
+
   // Rider specific
   vehicleType?: string;
   consecutiveReturns: number;
@@ -54,11 +54,21 @@ export interface IUser extends Document {
 const UserSchema: Schema = new Schema(
   {
     uid: { type: String, required: true, unique: true },
-    fullName: { type: String, required: true },
-    email: { type: String, required: true, unique: true },
+    fullName: { type: String, required: true, trim: true },
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
+    },
     password: { type: String, select: false },
     phoneNumber: { type: String, required: true, unique: true },
-    role: { type: String, enum: Object.values(UserRole), default: UserRole.CUSTOMER },
+    role: {
+      type: String,
+      enum: Object.values(UserRole),
+      default: UserRole.CUSTOMER,
+    },
     avatar: { type: String },
     address: { type: String },
     landmark: { type: String },
@@ -69,15 +79,19 @@ const UserSchema: Schema = new Schema(
     pendingBalance: { type: Number, default: 0 },
     trustPoints: { type: Number, default: 100 },
     trustScore: { type: Number, default: 100 },
-    status: { type: String, enum: ['active', 'restricted', 'suspended'], default: 'active' },
+    status: {
+      type: String,
+      enum: ["active", "restricted", "suspended"],
+      default: "active",
+    },
     lastNegativeEventAt: { type: Date, default: Date.now },
     otp: { type: String },
     otpExpires: { type: Date },
-    
+
     // Vendor specific
     shopName: { type: String },
     isOpen: { type: Boolean, default: true },
-    
+
     // Rider specific
     vehicleType: { type: String },
     consecutiveReturns: { type: Number, default: 0 },
@@ -92,20 +106,28 @@ const UserSchema: Schema = new Schema(
     bankAccountNumber: { type: String },
     bankAccountName: { type: String },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 // Hash password before saving
-UserSchema.pre('save', async function () {
+UserSchema.pre("save", async function () {
   const user = this as any;
-  if (!user.isModified('password')) return;
-  const salt = await bcrypt.genSalt(10);
-  user.password = await bcrypt.hash(user.password!, salt);
+  if (!user.isModified("password")) return;
+  try {
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(user.password!, salt);
+    // No next() call needed here!
+  } catch (error: any) {
+    // Re-throw the error to let Mongoose handle it
+    throw error;
+  }
 });
 
 // Compare password method
-UserSchema.methods.comparePassword = async function (password: string): Promise<boolean> {
+UserSchema.methods.comparePassword = async function (
+  password: string,
+): Promise<boolean> {
   return await bcrypt.compare(password, this.password!);
 };
 
-export default mongoose.model<IUser>('User', UserSchema);
+export default mongoose.model<IUser>("User", UserSchema);
