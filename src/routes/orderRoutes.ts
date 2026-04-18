@@ -4,20 +4,24 @@ import {
     updateOrderStatus, 
     setReadyForPickup, 
     setReadyToReceive,
-    getOrderById 
+    getOrderById,
+    getAllOrders,
+    claimOrder,
+    returnOrder
 } from '../controllers/orderController';
 import { protect } from '../middleware/auth';
 import { validateLandmark } from '../middleware/landmark';
-import { checkReadyForPickup, checkReadyToReceive } from '../middleware/orderChecks';
 import { checkTrustLevel } from '../middleware/trustMiddleware';
 
 const router = express.Router();
 
+router.get('/', protect, getAllOrders);
 router.get('/:orderId', protect, getOrderById);
 router.post('/', protect, checkTrustLevel, validateLandmark, createOrder);
-router.patch('/:orderId/status', protect, updateOrderStatus);
+router.patch('/:id/status', protect, updateOrderStatus);
+router.post('/:id/claim', protect, claimOrder);
+router.post('/:id/return', protect, returnOrder);
 router.patch('/:orderId/ready-pickup', protect, setReadyForPickup);
 router.patch('/:orderId/ready-receive', protect, setReadyToReceive);
-router.patch('/:orderId/deliver', protect, checkReadyToReceive, updateOrderStatus);
 
 export default router;

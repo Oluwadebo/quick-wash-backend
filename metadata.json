@@ -1,0 +1,5 @@
+{
+  "name": "Quick-Wash Backend",
+  "description": "Production-ready backend for Quick-Wash laundry app with Escrow, Trust Points, and Rider tracking.",
+  "requestFramePermissions": []
+}

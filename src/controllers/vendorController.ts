@@ -13,6 +13,20 @@ export const getVendors = async (req: Request, res: Response) => {
   }
 };
 
+export const getPriceList = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    const user = await User.findOne({ uid: id });
+    if (!user) return res.status(404).json({ message: 'Vendor not found' });
+    
+    const priceList = await PriceList.findOne({ vendor: user._id });
+    if (!priceList) return res.status(404).json({ message: 'Price list not found' });
+    res.json(priceList);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 export const updatePriceList = async (req: AuthRequest, res: Response) => {
   const { categories } = req.body;
   const vendorId = req.user?._id;

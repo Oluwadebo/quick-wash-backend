@@ -15,7 +15,10 @@ export const getWalletBalance = async (req: AuthRequest, res: Response) => {
 export const initializeDeposit = async (req: AuthRequest, res: Response) => {
   const { amount } = req.body;
   try {
-    const data = await paystack.initializeTransaction(req.user?.email!, amount);
+    if (!req.user?.email) {
+      return res.status(401).json({ message: 'User email not found' });
+    }
+    const data = await paystack.initializeTransaction(req.user.email, amount);
     res.json(data);
   } catch (error: any) {
     res.status(500).json({ message: error.message });

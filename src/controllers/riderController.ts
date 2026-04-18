@@ -4,12 +4,12 @@ import Order, { OrderStatus } from '../models/Order';
 import User from '../models/User';
 
 export const getAvailableOrders = async (req: AuthRequest, res: Response) => {
-  const riderId = req.user?._id;
+  const riderUid = req.user?.uid;
   try {
     const orders = await Order.find({ 
       $or: [
-        { status: OrderStatus.PENDING, pickupRider: { $exists: false } },
-        { status: OrderStatus.READY_FOR_PICKUP, deliveryRider: { $exists: false }, pickupRider: riderId }
+        { status: OrderStatus.PENDING, riderUid: { $exists: false } },
+        { status: OrderStatus.READY, riderUid: riderUid }
       ]
     });
     res.json(orders);
@@ -20,23 +20,21 @@ export const getAvailableOrders = async (req: AuthRequest, res: Response) => {
 
 export const acceptOrder = async (req: AuthRequest, res: Response) => {
   const { orderId } = req.params;
-  const riderId = req.user?._id;
+  const riderUid = req.user?.uid;
 
   try {
-    // Atomic "First-to-Claim" lock mechanism
-    // We update only if the order still has the original status and no rider assigned
     const order = await Order.findOneAndUpdate(
       { 
         _id: orderId,
         $or: [
-          { status: OrderStatus.PENDING, pickupRider: { $exists: false } },
-          { status: OrderStatus.READY_FOR_PICKUP, deliveryRider: { $exists: false } }
+          { status: OrderStatus.PENDING, riderUid: { $exists: false } },
+          { status: OrderStatus.READY, riderUid: { $exists: false } }
         ]
       },
       {
         $set: {
-          status: req.body.isDelivery ? OrderStatus.RIDER_ASSIGNED_DELIVERY : OrderStatus.RIDER_ASSIGNED_PICKUP,
-          [req.body.isDelivery ? 'deliveryRider' : 'pickupRider']: riderId
+          status: OrderStatus.RIDER_ASSIGN_PICKUP, // Simplification for sequence
+          riderUid: riderUid
         }
       },
       { new: true }

@@ -8,36 +8,48 @@ import { ORDER_PREFIX } from '../config/constants';
 import { generateHandoverCode } from '../utils/handover';
 import { calculateEscrowSplit } from '../utils/escrow';
 import { updateTrustPoints, TrustEvent } from '../utils/trustPoints';
-import { sendSMS } from '../utils/sms';
+
+const ORDER_SEQUENCE = [
+  OrderStatus.PENDING,
+  OrderStatus.RIDER_ASSIGN_PICKUP,
+  OrderStatus.PICKED_UP,
+  OrderStatus.WASHING,
+  OrderStatus.READY,
+  OrderStatus.RIDER_ASSIGN_DELIVERY,
+  OrderStatus.PICKED_UP_DELIVERY,
+  OrderStatus.DELIVERED,
+  OrderStatus.COMPLETED
+];
 
 export const createOrder = async (req: AuthRequest, res: Response) => {
   const { vendorId, items, landmark } = req.body;
-  const customerId = req.user?._id;
+  const user = req.user;
 
   try {
-    const vendor = await User.findById(vendorId);
+    const vendor = await User.findOne({ uid: vendorId });
     if (!vendor || !vendor.isOpen) {
       return res.status(400).json({ 
-        message: 'Vendor is currently closed (Rain Lock or Manual Closure). Cannot place order.' 
+        message: 'Vendor is currently closed or not found.' 
       });
     }
 
-    const totalAmount = items.reduce((acc: number, item: any) => acc + item.price * item.quantity, 0);
+    const totalPrice = items.reduce((acc: number, item: any) => acc + item.price * item.quantity, 0);
     const riderFee = getRiderFee(landmark);
-    const { vendorShare, platformShare } = calculateEscrowSplit(totalAmount);
+    const { vendorShare, platformShare } = calculateEscrowSplit(totalPrice);
 
     const order = await Order.create({
       orderId: `${ORDER_PREFIX}${Date.now()}`,
-      customer: customerId,
-      vendor: vendorId,
+      customerUid: user?.uid,
+      vendorId: vendorId,
       items,
-      totalAmount,
+      totalPrice,
       escrowAmount: vendorShare,
       platformFee: platformShare,
       riderFee,
       status: OrderStatus.PENDING,
       escrowStatus: EscrowStatus.HELD,
-      pickupCode: generateHandoverCode(),
+      pickupCode: generateHandoverCode(), // 4-digit code generated here
+      handoverCode: generateHandoverCode(), // Generic handover code as requested
     });
 
     res.status(201).json(order);
@@ -47,46 +59,73 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
 };
 
 export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
-  const { orderId } = req.params;
-  const { status, handoverCode, sealedBagPhoto } = req.body;
+  const { id } = req.params;
+  const { status, handoverCode } = req.body;
 
   try {
-    const order = await Order.findById(orderId);
+    const order = await Order.findById(id);
     if (!order) return res.status(404).json({ message: 'Order not found' });
 
-    // Logic for Handover Verification
-    if (status === OrderStatus.PICKED_UP && handoverCode !== order.pickupCode) {
-      return res.status(400).json({ message: 'Invalid pickup code' });
+    // Validate Sequence
+    const currentIndex = ORDER_SEQUENCE.indexOf(order.status);
+    const nextIndex = ORDER_SEQUENCE.indexOf(status);
+
+    if (nextIndex !== currentIndex + 1) {
+      return res.status(400).json({ 
+        message: `Invalid status transition from ${order.status} to ${status}.` 
+      });
     }
 
-    if (status === OrderStatus.RECEIVED_BY_VENDOR) {
-      order.vendorHandoverCode = generateHandoverCode();
-      if (sealedBagPhoto) order.sealedBagPhoto = sealedBagPhoto;
-    }
-
-    order.status = status;
-    
-    if (status === OrderStatus.DELIVERED) {
-      const releaseTime = new Date();
-      releaseTime.setHours(releaseTime.getHours() + 24);
-      order.autoReleaseAt = releaseTime;
-      order.paymentStatus = 'escrow';
-      
-      // Notify customer
-      const customer = await User.findById(order.customer);
-      if (customer) {
-        await sendSMS(customer.phone, `Your order ${order.orderId} has been delivered! Funds will be released in 24h unless you raise a dispute.`);
+    // Handover Code Verification
+    if (status === OrderStatus.PICKED_UP || status === OrderStatus.DELIVERED) {
+      if (handoverCode !== order.handoverCode) {
+        return res.status(400).json({ message: 'Invalid handover code verification.' });
       }
     }
 
-    // Automatic Trust Points on Completion
+    order.status = status;
+
+    // Financial Transfers on Completion
     if (status === OrderStatus.COMPLETED) {
+      order.completedAt = new Date();
       order.escrowStatus = EscrowStatus.RELEASED;
       order.paymentStatus = 'released';
-      
-      const customerPoints = await updateTrustPoints(order.customer.toString(), TrustEvent.ORDER_COMPLETED);
-      const vendorPoints = await updateTrustPoints(order.vendor.toString(), TrustEvent.ORDER_COMPLETED);
-      order.trustPointsImpact = customerPoints + vendorPoints;
+
+      const vendor = await User.findOne({ uid: order.vendorId });
+      const rider = await User.findOne({ uid: order.riderUid });
+
+      if (vendor) {
+        const vendorWallet = await Wallet.findOne({ user: vendor._id });
+        if (vendorWallet) {
+          const vendorProfit = order.totalPrice - order.riderFee;
+          vendorWallet.balance += vendorProfit;
+          vendorWallet.transactions.push({
+            amount: vendorProfit,
+            type: 'credit',
+            purpose: 'order_payment',
+            reference: order.orderId,
+            date: new Date()
+          });
+          await vendorWallet.save();
+        }
+      }
+
+      if (rider) {
+        const riderWallet = await Wallet.findOne({ user: rider._id });
+        if (riderWallet) {
+          riderWallet.balance += order.riderFee;
+          riderWallet.transactions.push({
+            amount: order.riderFee,
+            type: 'credit',
+            purpose: 'earning',
+            reference: order.orderId,
+            date: new Date()
+          });
+          await riderWallet.save();
+        }
+        // Add Trust Points for completes
+        await updateTrustPoints(rider._id.toString(), TrustEvent.ORDER_COMPLETED);
+      }
     }
 
     await order.save();
@@ -96,42 +135,127 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
   }
 };
 
-export const setReadyForPickup = async (req: AuthRequest, res: Response) => {
-  const { orderId } = req.params;
+export const claimOrder = async (req: AuthRequest, res: Response) => {
+  const { id } = req.params;
+  const user = req.user;
+
   try {
-    const order = await Order.findByIdAndUpdate(orderId, { 
-      readyForPickup: true,
-      status: OrderStatus.READY_FOR_PICKUP,
-      deliveryCode: generateHandoverCode()
-    }, { new: true });
+    // Atomic "First-to-Claim" lock mechanism
+    const order = await Order.findOneAndUpdate(
+      { 
+        _id: id,
+        status: { $in: [OrderStatus.PENDING, OrderStatus.READY] },
+        riderUid: { $exists: false }
+      },
+      {
+        $set: {
+          status: OrderStatus.RIDER_ASSIGN_PICKUP,
+          riderUid: user?.uid
+        }
+      },
+      { new: true }
+    );
+
+    if (!order) {
+      return res.status(400).json({ 
+        message: 'Order was already claimed or is no longer available.' 
+      });
+    }
+
     res.json(order);
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
 };
 
-export const cancelOrder = async (req: AuthRequest, res: Response) => {
-  const { orderId } = req.params;
-  const userId = req.user?._id;
+export const returnOrder = async (req: AuthRequest, res: Response) => {
+  const { id } = req.params;
+  const user = req.user;
 
   try {
-    // Privacy-First: Customer can only cancel their own order
+    const order = await Order.findOne({ _id: id, riderUid: user?.uid });
+    if (!order) return res.status(404).json({ message: 'Order not found or not assigned to you.' });
+
+    // Penalty logic: -₦200, -5 Trust
+    const wallet = await Wallet.findOne({ user: user?._id });
+    if (wallet) {
+      wallet.balance -= 200;
+      wallet.transactions.push({
+        amount: 200,
+        type: 'debit',
+        purpose: 'return_penalty',
+        reference: order.orderId,
+        date: new Date()
+      });
+      await wallet.save();
+    }
+
+    await User.findByIdAndUpdate(user?._id, {
+      $inc: { trustPoints: -5, consecutiveReturns: 1 },
+      lastNegativeEventAt: Date.now()
+    });
+
+    order.status = OrderStatus.PENDING;
+    order.riderUid = undefined;
+    await order.save();
+
+    res.json({ message: 'Order returned. Penalty applied.', order });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getAllOrders = async (req: AuthRequest, res: Response) => {
+  try {
+    const orders = await Order.find().sort({ createdAt: -1 });
+    res.json(orders);
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const getOrderById = async (req: AuthRequest, res: Response) => {
+    const user = req.user;
+    const isSuperAdmin = user?.email === 'ogunwedebo21@gmail.com';
+
+    try {
+        const query: any = { _id: req.params.orderId };
+        if (!isSuperAdmin) {
+            query.$or = [
+                { customerUid: user?.uid },
+                { vendorId: user?.uid },
+                { riderUid: user?.uid }
+            ];
+        }
+
+        const order = await Order.findOne(query);
+        if (!order) return res.status(404).json({ message: 'Order not found or unauthorized' });
+        res.json(order);
+    } catch (error: any) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+export const cancelOrder = async (req: AuthRequest, res: Response) => {
+  const { id } = req.params;
+  const user = req.user;
+
+  try {
     const order = await Order.findOne({ 
-      _id: orderId, 
-      customer: userId,
-      status: { $in: [OrderStatus.PENDING, OrderStatus.RIDER_ASSIGNED_PICKUP] }
+      _id: id, 
+      customerUid: user?.uid,
+      status: { $in: [OrderStatus.PENDING, OrderStatus.RIDER_ASSIGN_PICKUP] }
     });
 
     if (!order) {
       return res.status(400).json({ 
-        message: 'Order cannot be cancelled or you are not authorized. Cancellation is only possible before pickup.' 
+        message: 'Order cannot be cancelled or unauthorized.' 
       });
     }
 
-    // High-Visibility Cancellation Logic: 100% Refund if cancelled before pickup
-    const wallet = await Wallet.findOne({ user: userId });
+    const wallet = await Wallet.findOne({ user: user?._id });
     if (wallet) {
-      const refundAmount = order.totalAmount + order.riderFee;
+      const refundAmount = order.totalPrice + order.riderFee;
       wallet.balance += refundAmount;
       wallet.transactions.push({
         amount: refundAmount,
@@ -147,7 +271,20 @@ export const cancelOrder = async (req: AuthRequest, res: Response) => {
     order.paymentStatus = 'refunded';
     await order.save();
 
-    res.json({ message: 'Order cancelled successfully and 100% refund processed to wallet.', order });
+    res.json({ message: 'Order cancelled, 100% refund processed.', order });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const setReadyForPickup = async (req: AuthRequest, res: Response) => {
+  const { orderId } = req.params;
+  try {
+    const order = await Order.findByIdAndUpdate(orderId, { 
+      readyForPickup: true,
+      status: OrderStatus.READY,
+    }, { new: true });
+    res.json(order);
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
@@ -155,12 +292,11 @@ export const cancelOrder = async (req: AuthRequest, res: Response) => {
 
 export const setReadyToReceive = async (req: AuthRequest, res: Response) => {
   const { orderId } = req.params;
-  const userId = req.user?._id;
+  const user = req.user;
 
   try {
-    // Privacy-First: Only customer can signal ready to receive
     const order = await Order.findOneAndUpdate(
-      { _id: orderId, customer: userId },
+      { _id: orderId, customerUid: user?.uid },
       { readyToReceive: true },
       { new: true }
     );
@@ -170,28 +306,4 @@ export const setReadyToReceive = async (req: AuthRequest, res: Response) => {
   } catch (error: any) {
     res.status(500).json({ message: error.message });
   }
-};
-
-export const getOrderById = async (req: AuthRequest, res: Response) => {
-    const userId = req.user?._id;
-    const isSuperAdmin = req.user?.email === 'ogunwedebo21@gmail.com';
-
-    try {
-        // Privacy-First Filtering: Ensure user only sees their own orders
-        const query: any = { _id: req.params.orderId };
-        if (!isSuperAdmin) {
-            query.$or = [
-                { customer: userId },
-                { vendor: userId },
-                { pickupRider: userId },
-                { deliveryRider: userId }
-            ];
-        }
-
-        const order = await Order.findOne(query).populate('customer vendor pickupRider deliveryRider');
-        if (!order) return res.status(404).json({ message: 'Order not found or unauthorized' });
-        res.json(order);
-    } catch (error: any) {
-        res.status(500).json({ message: error.message });
-    }
 };

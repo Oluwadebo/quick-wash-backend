@@ -1,10 +1,8 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import User, { UserRole } from '../models/User';
-import Order from '../models/Order';
+import User from '../models/User';
 import Dispute from '../models/Dispute';
 import AuditLog from '../models/AuditLog';
-import { updateTrustPoints, TrustEvent } from '../utils/trustPoints';
 
 export const approveUser = async (req: AuthRequest, res: Response) => {
   const { userId } = req.params;
@@ -22,7 +20,7 @@ export const approveUser = async (req: AuthRequest, res: Response) => {
       action: approve ? 'APPROVE_USER' : 'REVOKE_APPROVAL',
       targetModel: 'User',
       targetId: user._id,
-      details: { role: user.role, name: user.name }
+      details: { role: user.role, fullName: user.fullName }
     });
 
     res.json({ message: `User ${approve ? 'approved' : 'revoked'} successfully`, user });
@@ -118,7 +116,7 @@ export const deleteUser = async (req: AuthRequest, res: Response) => {
       action: 'DELETE_USER',
       targetModel: 'User',
       targetId: user._id,
-      details: { email: user.email, name: user.name, role: user.role }
+      details: { email: user.email, fullName: user.fullName, role: user.role, uid: user.uid }
     });
 
     await User.findByIdAndDelete(userId);

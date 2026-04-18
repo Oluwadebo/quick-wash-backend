@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
-import User, { UserRole } from '../models/User';
+import User from '../models/User';
 import Wallet from '../models/Wallet';
 import { sendOTP } from '../utils/sms';
 
@@ -13,10 +13,10 @@ const generateToken = (id: string) => {
 const generateOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 export const register = async (req: Request, res: Response) => {
-  const { name, email, password, phone, role, businessName, landmark } = req.body;
+  const { fullName, email, password, phoneNumber, role, shopName, landmark } = req.body;
 
   try {
-    const userExists = await User.findOne({ $or: [{ email }, { phone }] });
+    const userExists = await User.findOne({ $or: [{ email }, { phoneNumber }] });
     if (userExists) {
       return res.status(400).json({ message: 'User with this email or phone already exists' });
     }
@@ -24,13 +24,17 @@ export const register = async (req: Request, res: Response) => {
     const otp = generateOTP();
     const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
 
+    // Generate a unique CID as uid
+    const uid = `USR-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+
     const user = await User.create({
-      name,
+      uid,
+      fullName,
       email,
       password,
-      phone,
+      phoneNumber,
       role,
-      businessName,
+      shopName,
       landmark,
       otp,
       otpExpires,
@@ -40,12 +44,13 @@ export const register = async (req: Request, res: Response) => {
     await Wallet.create({ user: user._id });
 
     // Send OTP via SMS
-    await sendOTP(phone, otp);
+    await sendOTP(phoneNumber, otp);
 
     res.status(201).json({
       message: 'Registration successful. Please verify your phone number.',
       userId: user._id,
-      phone: user.phone,
+      uid: user.uid,
+      phoneNumber: user.phoneNumber,
     });
   } catch (error: any) {
     res.status(500).json({ message: error.message });
@@ -53,10 +58,10 @@ export const register = async (req: Request, res: Response) => {
 };
 
 export const verifyPhone = async (req: Request, res: Response) => {
-  const { phone, otp } = req.body;
+  const { phoneNumber, otp } = req.body;
 
   try {
-    const user = await User.findOne({ phone, otp, otpExpires: { $gt: new Date() } });
+    const user = await User.findOne({ phoneNumber, otp, otpExpires: { $gt: new Date() } });
     if (!user) {
       return res.status(400).json({ message: 'Invalid or expired OTP' });
     }
@@ -68,7 +73,8 @@ export const verifyPhone = async (req: Request, res: Response) => {
 
     res.json({
       _id: user._id,
-      name: user.name,
+      uid: user.uid,
+      fullName: user.fullName,
       email: user.email,
       role: user.role,
       token: generateToken((user._id as any).toString()),
@@ -79,10 +85,10 @@ export const verifyPhone = async (req: Request, res: Response) => {
 };
 
 export const login = async (req: Request, res: Response) => {
-  const { phone, password } = req.body;
+  const { phoneNumber, password } = req.body;
 
   try {
-    const user = await User.findOne({ phone }).select('+password');
+    const user = await User.findOne({ phoneNumber }).select('+password');
     if (user && (await user.comparePassword(password))) {
       if (!user.isPhoneVerified) {
         // Resend OTP if not verified
@@ -90,13 +96,14 @@ export const login = async (req: Request, res: Response) => {
         user.otp = otp;
         user.otpExpires = new Date(Date.now() + 10 * 60 * 1000);
         await user.save();
-        await sendOTP(user.phone, otp);
+        await sendOTP(user.phoneNumber, otp);
         return res.status(403).json({ message: 'Phone not verified. OTP sent.', userId: user._id });
       }
 
       res.json({
         _id: user._id,
-        name: user.name,
+        uid: user.uid,
+        fullName: user.fullName,
         email: user.email,
         role: user.role,
         token: generateToken((user._id as any).toString()),

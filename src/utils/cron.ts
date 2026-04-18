@@ -19,26 +19,31 @@ export const initCronJobs = () => {
       });
 
       for (const order of ordersToRelease) {
-        const vendorWallet = await Wallet.findOne({ user: order.vendor });
-        if (vendorWallet) {
-          vendorWallet.balance += order.escrowAmount;
-          vendorWallet.transactions.push({
-            amount: order.escrowAmount,
-            type: 'credit',
-            purpose: 'vendor_payout',
-            reference: order.orderId,
-            date: new Date()
-          });
-          await vendorWallet.save();
+        const vendor = await User.findOne({ uid: order.vendorId });
+        if (vendor) {
+          const vendorWallet = await Wallet.findOne({ user: vendor._id });
+          if (vendorWallet) {
+            vendorWallet.balance += order.escrowAmount;
+            vendorWallet.transactions.push({
+              amount: order.escrowAmount,
+              type: 'credit',
+              purpose: 'vendor_payout',
+              reference: order.orderId,
+              date: new Date()
+            });
+            await vendorWallet.save();
+          }
         }
 
         order.status = OrderStatus.COMPLETED;
         order.escrowStatus = EscrowStatus.RELEASED;
         order.paymentStatus = 'released';
+        order.completedAt = new Date();
         await order.save();
 
-        await updateTrustPoints(order.customer.toString(), TrustEvent.ORDER_COMPLETED);
-        await updateTrustPoints(order.vendor.toString(), TrustEvent.ORDER_COMPLETED);
+        const customer = await User.findOne({ uid: order.customerUid });
+        if (customer) await updateTrustPoints(customer._id.toString(), TrustEvent.ORDER_COMPLETED);
+        if (vendor) await updateTrustPoints(vendor._id.toString(), TrustEvent.ORDER_COMPLETED);
         
         console.log(`Auto-released order: ${order.orderId}`);
       }
@@ -62,11 +67,20 @@ export const initCronJobs = () => {
 
       for (const user of usersToRecover) {
         user.trustPoints = Math.min(100, user.trustPoints + 10);
+        user.trustScore = user.trustPoints;
+        
+        // Update Status
+        if (user.trustPoints >= 60) {
+          user.status = 'active';
+        } else if (user.trustPoints >= 30) {
+          user.status = 'restricted';
+        }
+
         // Move the date forward by 27 days so they can earn again in 27 days
         const oldDate = user.lastNegativeEventAt || new Date();
         user.lastNegativeEventAt = new Date(oldDate.getTime() + 27 * 24 * 60 * 60 * 1000);
         await user.save();
-        console.log(`Recovered 10 points for user: ${user.name}`);
+        console.log(`Recovered 10 points for user: ${user.fullName}`);
       }
     } catch (error) {
       console.error('Trust Recovery Cron Error:', error);

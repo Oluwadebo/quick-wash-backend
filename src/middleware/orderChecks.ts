@@ -12,7 +12,7 @@ export const checkReadyForPickup = async (req: AuthRequest, res: Response, next:
       return res.status(400).json({ message: 'Order is not yet ready for pickup by vendor' });
     }
     next();
-  } catch (error) {
+  } catch (_error) {
     res.status(500).json({ message: 'Server error checking ready status' });
   }
 };
@@ -27,7 +27,7 @@ export const checkReadyToReceive = async (req: AuthRequest, res: Response, next:
       return res.status(400).json({ message: 'Customer has not signaled readiness to receive' });
     }
     next();
-  } catch (error) {
+  } catch (_error) {
     res.status(500).json({ message: 'Server error checking ready status' });
   }
 };

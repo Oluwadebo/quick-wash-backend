@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import crypto from 'crypto';
-import Order, { OrderStatus } from '../models/Order';
+import Order from '../models/Order';
 import Wallet from '../models/Wallet';
 
 export const paystackWebhook = async (req: Request, res: Response) => {

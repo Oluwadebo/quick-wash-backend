@@ -21,7 +21,7 @@ export const sendSMS = async (to: string, message: string) => {
     return response.data;
   } catch (error: any) {
     console.error('Termii SMS Error:', error.response?.data || error.message);
-    throw new Error('Failed to send SMS');
+    throw new Error('Failed to send SMS', { cause: error });
   }
 };
 

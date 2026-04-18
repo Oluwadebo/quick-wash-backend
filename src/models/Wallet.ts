@@ -6,7 +6,7 @@ export interface IWallet extends Document {
   transactions: {
     amount: number;
     type: 'credit' | 'debit';
-    purpose: 'order_payment' | 'withdrawal' | 'rider_fee' | 'vendor_payout' | 'referral';
+    purpose: 'order_payment' | 'withdrawal' | 'rider_fee' | 'vendor_payout' | 'referral' | 'earning' | 'return_penalty' | 'deposit';
     reference?: string;
     date: Date;
   }[];
@@ -22,7 +22,7 @@ const WalletSchema: Schema = new Schema(
         type: { type: String, enum: ['credit', 'debit'], required: true },
         purpose: { 
           type: String, 
-          enum: ['order_payment', 'withdrawal', 'rider_fee', 'vendor_payout', 'referral'],
+          enum: ['order_payment', 'withdrawal', 'rider_fee', 'vendor_payout', 'referral', 'earning', 'return_penalty', 'deposit'],
           required: true 
         },
         reference: { type: String },

@@ -2,13 +2,12 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export enum OrderStatus {
   PENDING = 'pending',
-  RIDER_ASSIGNED_PICKUP = 'rider_assigned_pickup',
+  RIDER_ASSIGN_PICKUP = 'rider_assign_pickup',
   PICKED_UP = 'picked_up',
-  RECEIVED_BY_VENDOR = 'received_by_vendor',
-  PROCESSING = 'processing',
-  READY_FOR_PICKUP = 'ready_for_pickup',
-  RIDER_ASSIGNED_DELIVERY = 'rider_assigned_delivery',
-  IN_TRANSIT = 'in_transit',
+  WASHING = 'washing',
+  READY = 'ready',
+  RIDER_ASSIGN_DELIVERY = 'rider_assign_delivery',
+  PICKED_UP_DELIVERY = 'picked_up_delivery',
   DELIVERED = 'delivered',
   COMPLETED = 'completed',
   CANCELLED = 'cancelled',
@@ -23,11 +22,11 @@ export enum EscrowStatus {
 }
 
 export interface IOrder extends Document {
+  id: string; // Alias for _id or custom id
   orderId: string;
-  customer: mongoose.Types.ObjectId;
-  vendor: mongoose.Types.ObjectId;
-  pickupRider?: mongoose.Types.ObjectId;
-  deliveryRider?: mongoose.Types.ObjectId;
+  customerUid: string;
+  vendorId: string;
+  riderUid?: string;
   
   items: {
     name: string;
@@ -35,9 +34,9 @@ export interface IOrder extends Document {
     price: number;
   }[];
   
-  totalAmount: number;
-  escrowAmount: number; // 80% to vendor
-  platformFee: number; // 20% to platform
+  totalPrice: number;
+  escrowAmount: number;
+  platformFee: number;
   riderFee: number;
   
   status: OrderStatus;
@@ -46,22 +45,23 @@ export interface IOrder extends Document {
   // Security & Verification
   sealedBagId?: string;
   sealedBagPhoto?: string;
-  pickupCode?: string; // Customer -> Rider
-  vendorHandoverCode?: string; // Rider -> Vendor
-  deliveryCode?: string; // Rider -> Customer
-  handoverCode?: string; // Generic field if needed
+  pickupCode?: string;
+  vendorHandoverCode?: string;
+  deliveryCode?: string;
+  handoverCode?: string; // 4-digit code
   
   // Logic Flags
-  readyForPickup: boolean; // Vendor flag
-  readyToReceive: boolean; // Customer flag
+  readyForPickup: boolean;
+  readyToReceive: boolean;
   
-  autoReleaseAt?: Date; // For escrow auto-release
+  autoReleaseAt?: Date;
+  completedAt?: Date;
   
   // Trust Points
   trustPointsImpact: number;
   
   // Rain delay
-  rainReportedBy?: mongoose.Types.ObjectId;
+  rainReportedBy?: string;
   rainDelayUntil?: Date;
   
   paymentStatus: 'pending' | 'paid' | 'escrow' | 'released' | 'refunded';
@@ -71,10 +71,9 @@ export interface IOrder extends Document {
 const OrderSchema: Schema = new Schema(
   {
     orderId: { type: String, required: true, unique: true },
-    customer: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    vendor: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    pickupRider: { type: Schema.Types.ObjectId, ref: 'User' },
-    deliveryRider: { type: Schema.Types.ObjectId, ref: 'User' },
+    customerUid: { type: String, required: true },
+    vendorId: { type: String, required: true },
+    riderUid: { type: String },
     
     items: [
       {
@@ -84,7 +83,7 @@ const OrderSchema: Schema = new Schema(
       },
     ],
     
-    totalAmount: { type: Number, required: true },
+    totalPrice: { type: Number, required: true },
     escrowAmount: { type: Number, required: true },
     platformFee: { type: Number, required: true },
     riderFee: { type: Number, required: true },
@@ -111,10 +110,11 @@ const OrderSchema: Schema = new Schema(
     readyToReceive: { type: Boolean, default: false },
     
     autoReleaseAt: { type: Date },
+    completedAt: { type: Date },
     
     trustPointsImpact: { type: Number, default: 0 },
     
-    rainReportedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    rainReportedBy: { type: String },
     rainDelayUntil: { type: Date },
     
     paymentStatus: { 
