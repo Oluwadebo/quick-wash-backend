@@ -29,6 +29,9 @@ export interface IUser extends Document {
   lastNegativeEventAt?: Date;
   otp?: string;
   otpExpires?: Date;
+  lastPenaltyAt?: string;
+  lastRecoveryAt?: string;
+  restrictionExpires?: string;
 
   // Vendor specific
   shopName?: string;
@@ -87,6 +90,9 @@ const UserSchema: Schema = new Schema(
     lastNegativeEventAt: { type: Date, default: Date.now },
     otp: { type: String },
     otpExpires: { type: Date },
+    lastPenaltyAt: { type: String },
+    lastRecoveryAt: { type: String },
+    restrictionExpires: { type: String },
 
     // Vendor specific
     shopName: { type: String },

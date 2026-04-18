@@ -1,3 +1,7 @@
+import dns from "dns";
+dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1"]);
+dns.setDefaultResultOrder("ipv4first");
+
 import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
@@ -29,8 +33,20 @@ const httpServer = createServer(app);
 
 // Middleware
 app.use(helmet());
-app.use(cors());
+// app.use(cors());
 app.use(morgan("dev"));
+app.use(express.json());
+
+app.use(
+  cors({
+    origin: [
+      "http://localhost:3000", // Local dev
+      process.env.FRONTEND_URL, // Vercel URL from env
+    ].filter(Boolean) as string[],
+    methods: ["GET", "POST", "DELETE", "PATCH"],
+    credentials: true,
+  }),
+);
 app.use(express.json());
 
 // Rate Limiting
@@ -79,7 +95,7 @@ if (!MONGODB_URI) {
 }
 
 // Start Server
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 httpServer.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
